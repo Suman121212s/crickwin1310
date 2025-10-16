@@ -434,7 +434,7 @@ export function GameDetails() {
                     </div>
                   </div>
                 ))}
-              </div
+              </div>
             )}
           </div>
         </div>
