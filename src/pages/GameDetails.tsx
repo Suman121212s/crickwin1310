@@ -17,7 +17,6 @@ interface MatchBet {
   team?: string;
   predicted_percentage?: number;
   predicted_score?: number;
-  type?: string;
   user: {
     name: string;
   };
@@ -37,9 +36,6 @@ export function GameDetails() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [userBalance, setUserBalance] = useState<number>(0);
-  const [totalVolume, setTotalVolume] = useState(0);
-  const [teamAVolume, setTeamAVolume] = useState(0);
-  const [teamBVolume, setTeamBVolume] = useState(0);
 
   const scoreRanges = [
     "1. Score 0 - 50",
@@ -63,7 +59,12 @@ export function GameDetails() {
 
   async function fetchGame() {
     try {
-      const { data, error } = await supabase.from('games').select('*').eq('id', id).single();
+      const { data, error } = await supabase
+        .from('games')
+        .select('*')
+        .eq('id', id)
+        .single();
+
       if (error) throw error;
       setGame(data);
     } catch (error) {
@@ -75,39 +76,52 @@ export function GameDetails() {
 
   async function fetchMatchBets() {
     if (!id) return;
-
+    
     try {
       setBetsLoading(true);
-
+      
+      // Fetch win game bets
       const { data: winBets, error: winError } = await supabase
         .from('win_game_bets')
-        .select('id, user_id, bet_amount, status, created_at, team, predicted_percentage, user:users(name)')
+        .select(`
+          id,
+          user_id,
+          bet_amount,
+          status,
+          created_at,
+          team,
+          predicted_percentage,
+          user:users(name)
+        `)
         .eq('game_id', id)
         .order('created_at', { ascending: false });
 
+      // Fetch score prediction bets
       const { data: scoreBets, error: scoreError } = await supabase
         .from('score_prediction_bets')
-        .select('id, user_id, bet_amount, status, created_at, team, predicted_score, user:users(name)')
+        .select(`
+          id,
+          user_id,
+          bet_amount,
+          status,
+          created_at,
+          team,
+          predicted_score,
+          user:users(name)
+        `)
         .eq('game_id', id)
         .order('created_at', { ascending: false });
 
       if (winError) throw winError;
       if (scoreError) throw scoreError;
 
+      // Combine and sort all bets
       const allBets = [
-        ...(winBets || []).map((b) => ({ ...b, type: 'win' })),
-        ...(scoreBets || []).map((b) => ({ ...b, type: 'score' })),
+        ...(winBets || []).map(bet => ({ ...bet, type: 'win' })),
+        ...(scoreBets || []).map(bet => ({ ...bet, type: 'score' }))
       ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
       setMatchBets(allBets);
-
-      // Calculate total and team volumes
-      const total = allBets.reduce((sum, b) => sum + Number(b.bet_amount || 0), 0);
-      const teamA = allBets.filter((b) => b.team === game?.teama).reduce((sum, b) => sum + Number(b.bet_amount || 0), 0);
-      const teamB = allBets.filter((b) => b.team === game?.teamb).reduce((sum, b) => sum + Number(b.bet_amount || 0), 0);
-      setTotalVolume(total);
-      setTeamAVolume(teamA);
-      setTeamBVolume(teamB);
     } catch (error) {
       console.error('Error fetching match bets:', error);
     } finally {
@@ -116,47 +130,55 @@ export function GameDetails() {
   }
 
   async function fetchUserBalance() {
-    const { data, error } = await supabase.from('users').select('balance').eq('id', user?.id).single();
-    if (!error && data?.balance !== undefined) setUserBalance(Number(data.balance));
+    const { data, error } = await supabase
+      .from('users')
+      .select('balance')
+      .eq('id', user?.id)
+      .single();
+
+    if (!error && data?.balance !== undefined) {
+      setUserBalance(Number(data.balance));
+    }
   }
 
   async function placeBet(e: React.FormEvent) {
     e.preventDefault();
     if (!user || !game) return;
-
+  
     try {
       setError('');
       setSubmitting(true);
-
+  
       if (game.status !== 'live') {
         setError('This game is not live. You cannot place a bet.');
         return;
       }
-
+  
       const amount = parseFloat(betAmount);
       if (isNaN(amount) || amount <= 0) {
         setError('Please enter a valid bet amount');
         return;
       }
-
+  
       if (amount > userBalance) {
         setError('Insufficient balance to place the bet.');
         return;
       }
-
+  
       if (game.type === 'win') {
         if (!prediction) {
           setError('Please select a team');
           return;
         }
-
+  
         const { error } = await supabase.from('win_game_bets').insert({
           user_id: user.id,
           game_id: game.id,
           team: prediction,
           predicted_percentage: 50,
-          bet_amount: amount,
+          bet_amount: amount
         });
+  
         if (error) throw error;
       } else {
         const predictedScore = parseInt(prediction);
@@ -164,19 +186,20 @@ export function GameDetails() {
           setError('Please select a valid score range');
           return;
         }
-
+  
         const { error } = await supabase.from('score_prediction_bets').insert({
           user_id: user.id,
           game_id: game.id,
           team: game.team!,
           predicted_score: predictedScore,
-          bet_amount: amount,
+          bet_amount: amount
         });
+  
         if (error) throw error;
       }
-
+  
       navigate('/dashboard');
-      await fetchMatchBets();
+      await fetchMatchBets(); // Refresh bets after placing a new one
     } catch (error) {
       console.error('Error placing bet:', error);
       setError('Failed to place bet. Please try again.');
@@ -187,19 +210,10 @@ export function GameDetails() {
 
   const getScoreRangeText = (scoreIndex: number) => {
     const ranges = [
-      '0 - 50',
-      '51 - 80',
-      '81 - 100',
-      '101 - 120',
-      '121 - 140',
-      '141 - 160',
-      '161 - 180',
-      '181 - 200',
-      '201 - 220',
-      '221 - 240',
-      '241+',
+      "0 - 50", "51 - 80", "81 - 100", "101 - 120", "121 - 140",
+      "141 - 160", "161 - 180", "181 - 200", "201 - 220", "221 - 240", "241+"
     ];
-    return ranges[scoreIndex - 1] || 'Unknown';
+    return ranges[scoreIndex - 1] || "Unknown";
   };
 
   if (loading) {
@@ -228,22 +242,27 @@ export function GameDetails() {
   }
 
   return (
-    <div className={`min-h-screen ${theme === 'dark' ? 'bg-[#0A1929]' : 'bg-gray-50'} py-8`}>
-      {/* Volume Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 px-6 mb-8">
-        <div className={`${theme === 'dark' ? 'bg-[#102843]' : 'bg-white'} p-6 rounded-xl shadow-lg border border-gray-200`}>
-          <h3 className="text-lg font-semibold text-[#F5B729] mb-2">Total Volume</h3>
-          <p className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>₹{totalVolume.toFixed(2)}</p>
-        </div>
-        <div className={`${theme === 'dark' ? 'bg-[#102843]' : 'bg-white'} p-6 rounded-xl shadow-lg border border-gray-200`}>
-          <h3 className="text-lg font-semibold text-[#1A8754] mb-2">{game.teama} Volume</h3>
-          <p className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>₹{teamAVolume.toFixed(2)}</p>
-        </div>
-        <div className={`${theme === 'dark' ? 'bg-[#102843]' : 'bg-white'} p-6 rounded-xl shadow-lg border border-gray-200`}>
-          <h3 className="text-lg font-semibold text-[#E74C3C] mb-2">{game.teamb} Volume</h3>
-          <p className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>₹{teamBVolume.toFixed(2)}</p>
-        </div>
-      </div>
+    <div className={`min-h-screen ${theme === 'dark' ? 'bg-[#0A1929]' : 'bg-gray-50'} py-12`}>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className={`${theme === 'dark' ? 'bg-gradient-to-br from-[#0A2540] to-[#0D3158] border-[#1A3A5C]' : 'bg-white border-gray-200'} rounded-xl shadow-2xl border overflow-hidden`}>
+          <div className={`${theme === 'dark' ? 'bg-[#1A3A5C]' : 'bg-gray-100'} p-6`}>
+            <div className="flex items-center space-x-3 mb-4">
+              {game.type === 'win' ? (
+                <Trophy className="text-[#F5B729]" size={32} />
+              ) : (
+                <Target className="text-[#F5B729]" size={32} />
+              )}
+              <h1 className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                {game.type === 'win' ? 'Match Winner Prediction' : 'Score Prediction'}
+              </h1>
+            </div>
+            <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+              {new Date(game.date).toLocaleString('en-US', {
+                dateStyle: 'full',
+                timeStyle: 'short'
+              })}
+            </p>
+          </div>
 
           <div className="p-6">
             {game.type === 'win' ? (
