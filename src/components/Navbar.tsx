@@ -73,7 +73,9 @@ export function Navbar() {
                 alt="Logo"
                 className="h-12 w-12 object-contain"
               />
-            <span className="text-2xl font-bold text-[#F5B729]">CrickWin</span>
+            <span className="text-2xl font-bold bg-gradient-to-r from-[#004aad] to-[#cb6ce6] bg-clip-text text-transparent">
+              CrickWin
+            </span>
           </Link>
 
           {/* Desktop Navigation */}
